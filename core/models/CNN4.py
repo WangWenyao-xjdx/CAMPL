@@ -1,8 +1,3 @@
-"""
-4层CNN模型 — 多原型版本
-针对一维光谱数据设计
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -16,17 +11,7 @@ from core.config import Config
 
 
 class dce_loss(nn.Module):
-    """
-    多原型 Distance-based Cross-Entropy Loss (DCE)
-
-    【可学习温度 tau_dce】原始实现把余弦相似度（范围 [-1,1]）直接送入
-    log_softmax，类别间 logit 差距很小、决策余量不足。现引入温度参数：
-        logits = class_sim / tau_dce
-    tau_dce = exp(log_tau)，以 log 参数化保证恒为正，并 clamp 到
-    [tau_min, tau_max] 防止数值不稳定。tau_init=1.0 时与旧行为完全一致。
-    可通过 configure_tau() 由 Config 配置（DCE_TAU_INIT / DCE_TAU_LEARNABLE /
-    DCE_TAU_MIN / DCE_TAU_MAX）。
-    """
+   
     def __init__(self, n_classes, feat_dim, tau_init=1.0, tau_learnable=True,
                  tau_min=0.05, tau_max=5.0):
         super(dce_loss, self).__init__()
@@ -36,14 +21,12 @@ class dce_loss(nn.Module):
         self.register_buffer('prototype_labels', torch.empty(0, dtype=torch.long))
         self.register_buffer('prototype_counts', torch.empty(0, dtype=torch.long))
         self.num_prototypes = 0
-        # 温度（log 参数化；requires_grad=False 时等价于固定 tau）
         self.tau_min = float(tau_min)
         self.tau_max = float(tau_max)
         self.log_tau = nn.Parameter(torch.log(torch.tensor(float(tau_init))))
         self.log_tau.requires_grad_(bool(tau_learnable))
 
     def configure_tau(self, tau_init=None, learnable=None, tau_min=None, tau_max=None):
-        """由外部配置温度；就地修改（不替换 Parameter 对象），需在创建优化器之前调用。"""
         if tau_min is not None:
             self.tau_min = float(tau_min)
         if tau_max is not None:
@@ -61,7 +44,6 @@ class dce_loss(nn.Module):
 
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
                               missing_keys, unexpected_keys, error_msgs):
-        # 向后兼容：旧版 checkpoint 没有 log_tau 键，注入当前默认值（tau=1.0）
         key = prefix + 'log_tau'
         if key not in state_dict:
             state_dict[key] = self.log_tau.detach().clone()
@@ -76,7 +58,6 @@ class dce_loss(nn.Module):
         self.n_classes = len(counts)
 
     def forward(self, x):
-        # 【修复】未初始化时返回占位符，允许模型前向传播提取 features_p
         if self.num_prototypes == 0:
             batch_size = x.shape[0]
             return self.prototypes, torch.zeros(batch_size, self.n_classes, device=x.device)
@@ -97,7 +78,6 @@ class dce_loss(nn.Module):
         sim_masked[mask_expanded == 0] = -float('inf')
         class_sim, _ = sim_masked.max(dim=2)
 
-        # 可学习温度缩放：logits = class_sim / tau_dce
         tau = self.log_tau.exp().clamp(self.tau_min, self.tau_max)
         class_sim = class_sim / tau
 
@@ -125,7 +105,7 @@ class CNN4(nn.Module):
         self.pool4 = nn.MaxPool1d(2)
 
         if input_length is None:
-            raise ValueError("CNN4 需要提供 input_length 以计算 FC 维度")
+            raise ValueError("CNN4 needs input_length")
         self._calculate_fc_input(input_length)
 
         self.fc_p = nn.Linear(self.fc_input_size, num_hidden_units)

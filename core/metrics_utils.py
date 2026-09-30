@@ -1,16 +1,3 @@
-"""
-metrics_utils.py
-================
-Shared evaluation metrics for the revised CAMPL pipeline.
-
-Provides:
-  - spectrum-level UAR / UF1 / accuracy / confusion matrix
-  - per-class precision / recall / F1 / specificity
-  - macro AUC (one-vs-rest) when class probabilities are available
-  - bootstrap 95% confidence intervals for UAR / UF1 / accuracy
-  - patient-level aggregation (mean predicted probability per patient) with
-    patient-level UAR / UF1 / accuracy / confusion matrix
-"""
 
 import numpy as np
 from sklearn.metrics import (
@@ -19,7 +6,6 @@ from sklearn.metrics import (
 
 
 def per_class_specificity(cm):
-    """Specificity (true negative rate) per class from a confusion matrix."""
     cm = np.asarray(cm, dtype=np.float64)
     total = cm.sum()
     tp = np.diag(cm)
@@ -32,11 +18,6 @@ def per_class_specificity(cm):
 
 
 def bootstrap_ci(y_true, y_pred, n_bootstrap=1000, seed=42, confidence=0.95):
-    """
-    Bootstrap confidence intervals for UAR / UF1 / accuracy.
-    Resamples spectrum indices with replacement.
-    Returns dict: metric -> (point_estimate, ci_low, ci_high).
-    """
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
     rng = np.random.default_rng(seed)
@@ -61,7 +42,6 @@ def bootstrap_ci(y_true, y_pred, n_bootstrap=1000, seed=42, confidence=0.95):
 
 
 def macro_auc(y_true, probs, num_classes):
-    """Macro one-vs-rest AUC; NaN if not computable (e.g. missing classes)."""
     if probs is None:
         return float('nan')
     y_true = np.asarray(y_true)
@@ -80,12 +60,6 @@ def macro_auc(y_true, probs, num_classes):
 
 
 def aggregate_by_patient(y_true, probs, groups):
-    """
-    Aggregate spectrum-level predicted probabilities by patient (mean
-    probability). Returns (patient_ids, patient_y_true, patient_probs,
-    patient_y_pred). Patient ground truth = majority/first label (validated
-    upstream to be unique per patient when possible).
-    """
     y_true = np.asarray(y_true)
     probs = np.asarray(probs)
     groups = np.asarray(groups)
@@ -103,13 +77,7 @@ def aggregate_by_patient(y_true, probs, groups):
 
 def compute_extended_metrics(y_true, y_pred, probs=None, groups=None,
                              num_classes=None, n_bootstrap=1000, seed=42):
-    """
-    Compute the full metric suite. Returns a nested dict:
-      {
-        'spectrum': {...},         # spectrum-level metrics
-        'patient': {...} or None,  # patient-level metrics (if groups given)
-      }
-    """
+
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
     if num_classes is None:
@@ -137,11 +105,6 @@ def compute_extended_metrics(y_true, y_pred, probs=None, groups=None,
         'macro_auc': auc,
         'bootstrap_ci': ci,
     }
-
-    # Patient-level metrics are reported whenever patient grouping is
-    # available — including the degenerate case of exactly one spectrum per
-    # patient (aggregation is then the identity, and the patient-level
-    # numbers still document the cohort size).
     patient = None
     if groups is not None and probs is not None:
         pids, py_true, pprobs, py_pred = aggregate_by_patient(y_true, probs, groups)
@@ -159,7 +122,6 @@ def compute_extended_metrics(y_true, y_pred, probs=None, groups=None,
 
 
 def format_metrics_report(metrics, title='Evaluation', num_classes=None):
-    """Render the metric dict from compute_extended_metrics as a text report."""
     lines = []
     lines.append(f"===== {title} =====")
     spec = metrics['spectrum']
@@ -186,16 +148,5 @@ def format_metrics_report(metrics, title='Evaluation', num_classes=None):
             f"{spec['per_class_recall'][c]:>8.4f} {spec['per_class_f1'][c]:>8.4f} "
             f"{spec['per_class_specificity'][c]:>8.4f}")
     lines.append(f"Confusion matrix:\n{cm}")
-
-    # if metrics.get('patient') is not None:
-    #     pat = metrics['patient']
-    #     lines.append("-- Patient-level (mean probability aggregation) --")
-    #     lines.append(f"Patients : {pat['n_patients']}")
-    #     lines.append(f"UAR      : {pat['uar']:.4f}")
-    #     lines.append(f"UF1      : {pat['uf1']:.4f}")
-    #     lines.append(f"Accuracy : {pat['accuracy']:.4f}")
-    #     if not np.isnan(pat['macro_auc']):
-    #         lines.append(f"Macro AUC: {pat['macro_auc']:.4f}")
-    #     lines.append(f"Confusion matrix:\n{pat['confusion_matrix']}")
 
     return "\n".join(lines)
